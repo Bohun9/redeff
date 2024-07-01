@@ -1,0 +1,5 @@
+(executable
+ (public_name redeff)
+ (name main)
+ (libraries interpreter)
+ )
