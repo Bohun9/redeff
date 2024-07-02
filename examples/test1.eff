@@ -1,0 +1,10 @@
+handle
+    let x = do tell 101 in return x
+with
+    { return z => return z }
+    { tell y r => 
+        let x1 = r 1 in
+        let x2 = r 2 in
+        let s = x1 + x2 in
+        s + y
+    }

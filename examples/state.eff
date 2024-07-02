@@ -1,0 +1,12 @@
+let sexpr = 
+    handle
+        let s = do get 0 in
+        let n = s + s in
+        let u = do put n in
+        do get 0
+    with
+        { return z => return fn s => return z }
+        { put s r => return fn _ => let f = r 0 in f s }
+        { get _ r => return fn s => let f = r s in f s }
+in
+sexpr 10
