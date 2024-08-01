@@ -34,9 +34,11 @@ type redex =
   | RAdd of int * int
   | RBeta of var * expr * value
   | RLet of var * value * expr
-  | RHandlerRet of var * expr * value
-  | RDo of label * value
+  | RHandleRet of var * expr * value
+  | RHandleDo of handler * context * label * value
 
 (* Decomposition *)
 
 type decomp = context * redex
+
+let op_clauses (Handler(_, ops)) = ops
