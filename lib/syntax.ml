@@ -37,8 +37,4 @@ type redex =
   | RHandleRet of var * expr * value
   | RHandleDo of handler * context * label * value
 
-(* Decomposition *)
-
-type decomp = context * redex
-
 let op_clauses (Handler(_, ops)) = ops

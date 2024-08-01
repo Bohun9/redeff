@@ -65,28 +65,42 @@ let rec find_handler (l : label) (c : context) : (handler * context * context) o
           end
       end
 
-let rec decompose (e : expr) (c : context) : decomp option = 
+type decomp =
+  | Decomp of context * redex
+  | Normal of expr
+
+let rec refocus (c : context) (e : expr) : (context * redex) option =
   match e with
   | EAdd(VInt n1, VInt n2) -> Some(c, RAdd(n1, n2))
   | EAdd(_, _) -> None
   | EApp(VLam(x, e1), v) -> Some(c, RBeta(x, e1, v))
   | EApp(_, _) -> None
-  | ERet _ -> None
+  | (ERet _) as r -> 
+      begin match c with
+      | CSquare -> None
+      | CLet(x, c', e) -> refocus c' (ELet(x, r, e))
+      | CHandle(h, c') -> refocus c' (EHandle(h, r))
+      end
   | ELet(x, (ERet v), e2) -> Some(c, RLet(x, v, e2))
-  | ELet(x, e1, e2) -> decompose e1 (CLet(x, c, e2))
+  | ELet(x, e1, e2) -> refocus (CLet(x, c, e2)) e1 
   | EDo(l, v) -> 
       begin match find_handler l c with
       | None -> None
       | Some(h, c, k) -> Some(c, RHandleDo(h, k, l, v))
       end
   | EHandle(Handler(RetClause(x, e), _), (ERet v)) -> Some(c, RHandleRet(x, e, v))
-  | EHandle(h, e1) -> decompose e1 (CHandle(h, c))
+  | EHandle(h, e1) -> refocus (CHandle(h, c)) e1
 
-let decompose (e : expr) : decomp option = 
-  decompose e CSquare
+let refocus ((c, e) : context * expr) : decomp = 
+  match refocus c e with
+  | Some(c, r) -> Decomp(c, r)
+  | None -> Normal (plug c e)
 
-let rec iterate (e : expr) : expr = 
-  match decompose e with
-  | None -> e
-  | Some(c, r) -> iterate (plug c (contract r))
+let rec iterate (d : decomp) : expr = 
+  match d with
+  | Normal e -> e
+  | Decomp(c, r) -> iterate (refocus (c, contract r))
+
+let normalize (e : expr) : expr = 
+  iterate (refocus (CSquare, e))
 

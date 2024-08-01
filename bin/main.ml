@@ -18,5 +18,5 @@ let program = Utils.parse_from_string source
 
 let _ = print_endline (expr_to_string program)
 let _ = print_endline "\n---->>>>\n"
-let _ = print_endline (Eval.iterate program |> expr_to_string)
+let _ = print_endline (Eval.normalize program |> expr_to_string)
 
