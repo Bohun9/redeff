@@ -16,7 +16,9 @@ let file = Sys.argv.(1)
 let source = read_file file
 let program = Utils.parse_from_string source
 
+(* let _ = Eval.normalize program *)
+
 let _ = print_endline (expr_to_string program)
-let _ = print_endline "\n---->>>>\n"
-let _ = print_endline (Eval.normalize program |> expr_to_string)
+let _ = print_endline "\n-->*\n"
+let _ = print_endline (Eval.normalize program |> Eval.vm_state_to_string)
 

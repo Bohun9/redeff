@@ -21,20 +21,5 @@ and handler = Handler of return_clause * op_clause list
 and return_clause = RetClause of var * expr
 and op_clause = OpClause of label * var * var * expr
 
-(* Evaluation contexts *)
-
-type context = 
-  | CSquare
-  | CLet of var * context * expr
-  | CHandle of handler * context
-
-(* Redexes *)
-
-type redex = 
-  | RAdd of int * int
-  | RBeta of var * expr * value
-  | RLet of var * value * expr
-  | RHandleRet of var * expr * value
-  | RHandleDo of handler * context * label * value
-
 let op_clauses (Handler(_, ops)) = ops
+let ret_clause (Handler(ret, _)) = ret
