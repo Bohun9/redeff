@@ -23,10 +23,13 @@ end
 
 (* Evaluation contexts *)
 
-type context = 
-  | CSquare
-  | CLet of (var * expr * env) * context
-  | CHandle of (handler * env) * context
+type pure_frame = FLet of var * expr * env
+and pure_context = pure_frame list
+
+and handle_frame = FHandle of handler * env
+
+and eff_frame = handle_frame * pure_context
+and context = eff_frame list
 
 (* Redexes *)
 
@@ -35,7 +38,7 @@ and redex =
   | RBeta of var * expr * env * walue
   | RLet of var * expr * env * walue
   | RHandleRet of var * expr * env * walue
-  | RHandleDo of handler * context * label * env * walue
+  | RHandleDo of handler * context * label * env * walue (* context is reversed to have easy access to the active handler *)
   | RContApp of context * walue
 
 and walue = 
@@ -54,48 +57,39 @@ let walue_to_string (w : walue) : string =
   | WCont _ -> "<cont>"
 
 (* Just for printing result *)
+let rec plug_pure (c : pure_context) (e : expr) : expr = 
+  match c with
+  | [] -> e
+  | FLet(x, e', _) :: c' -> plug_pure c' (ELet(x, e, e'))
+
 let rec plug (c : context) (e : expr) : expr = 
   match c with
-  | CSquare -> e
-  | CLet((x, e', _), c') -> plug c' (ELet(x, e, e'))
-  | CHandle((h, _), c') -> plug c' (EHandle(h, e))
+  | [] -> e
+  | (FHandle(h, _), pure_c) :: c' -> plug c' (EHandle(h, (plug_pure pure_c e)))
 
 let vm_state_to_string ((c, e, env) : vm_state) : string = 
   Env.to_string walue_to_string env ^ (plug c e |> Utils.expr_to_string)
-
-let rec connect_contexts (c_up : context) (c_down : context) : context = 
-  match c_down with
-  | CSquare -> c_up
-  | CLet(frame, c') -> CLet(frame, connect_contexts c_up c')
-  | CHandle(frame, c') -> CHandle(frame, connect_contexts c_up c')
 
 let contract (c : context) (r : redex) : vm_state = 
   match r with
   | RAdd(n1, n2) -> c, ERet (VInt (n1 + n2)), Env.empty
   | RBeta(x, e, env, w) | RLet(x, e, env, w) | RHandleRet(x, e, env, w) -> c, e, Env.extend x w env
-  | RContApp(c', w) -> connect_contexts c c', (ERet (VVar "cont_arg")), Env.empty |> Env.extend "cont_arg" w
+  | RContApp(c', w) -> c' @ c, (ERet (VVar "cont_arg")), Env.empty |> Env.extend "cont_arg" w
   | RHandleDo(h, c_local, l, env, w) ->
       let (OpClause(_, y, k, e)) = List.find (fun (OpClause(l', _, _, _)) -> l = l') (op_clauses h) in
-      let c' = connect_contexts (CHandle((h, env), CSquare)) c_local in
-      c, e, env |> Env.extend y w |> Env.extend k (WCont c')
+      c, e, env |> Env.extend y w |> Env.extend k (WCont (List.rev c_local))
 
-let rec find_handler (l : label) (c : context) : (handler * context * context * env) option = 
+let rec find_handler (l : label) (c : context) (res_c : context) : (handler * context * context * env) option = 
   match c with
-  | CSquare -> None (* uncaught operation *)
-  | CLet((x, e, let_env), c') ->
-      begin match find_handler l c' with
-      | None -> None
-      | Some(h, c, k, env) -> Some(h, c, CLet((x, e, let_env), k), env)
-      end
-  | CHandle((h, hdlr_env), c') ->
+  | [] -> None
+  | ((FHandle(h, env), _) as eff_frame) :: c' -> 
       begin match List.find_opt (fun (OpClause(l', _, _, _)) -> l = l') (op_clauses h) with
-      | Some _ -> Some(h, c', CSquare, hdlr_env)
-      | None ->
-          begin match find_handler l c' with
-          | None -> None
-          | Some(h, c, k, env) -> Some(h, c, CHandle((h, hdlr_env), k), env)
-          end
+      | Some _ -> Some(h, c', eff_frame :: res_c, env)
+      | None -> find_handler l c' (eff_frame :: res_c)
       end
+
+let find_handler (l : label) (c : context) : (handler * context * context * env) option = 
+  find_handler l c []
 
 type decomp =
   | Decomp of context * redex
@@ -122,21 +116,25 @@ let rec refocus (c : context) (e : expr) (env : env) : (context * redex) option 
       end
   | ERet v -> 
       begin match c with
-      | CSquare -> None
-      | CLet((x, e, env'), c') ->
+      | [] -> None
+      | (FHandle(h, env'), []) :: c' -> 
+          let RetClause(x, e) = ret_clause h in
           begin match value_to_walue v env with
-          | Some w -> Some(c', RLet(x, e, env', w))
+          | Some w -> Some(c', RHandleRet(x, e, env', w))
           | None -> None
           end
-      | CHandle((h, env'), c') ->
+      | (handle_f, FLet(x, e, env') :: pure_c) :: c' ->
           begin match value_to_walue v env with
-          | Some w ->
-              let RetClause(x, e) = ret_clause h in
-              Some(c', RHandleRet(x, e, env', w))
+          | Some w -> Some((handle_f, pure_c) :: c', RLet(x, e, env', w))
           | None -> None
           end
       end
-  | ELet(x, e1, e2) -> refocus (CLet((x, e2, env), c)) e1 env
+  | ELet(x, e1, e2) ->
+      begin match c with
+      | [] -> failwith "top handler should guard us"
+      | (handle_f, pure_c) :: c' ->
+          refocus ((handle_f, FLet(x, e2, env) :: pure_c) :: c') e1 env
+      end
   | EDo(l, v) -> 
       begin match value_to_walue v env with
       | Some w ->
@@ -146,7 +144,7 @@ let rec refocus (c : context) (e : expr) (env : env) : (context * redex) option 
           end
       | None -> None
       end
-  | EHandle(h, e1) -> refocus (CHandle((h, env), c)) e1 env
+  | EHandle(h, e1) -> refocus ((FHandle(h, env), []) :: c) e1 env
 
 let refocus ((c, e, env) : vm_state) : decomp = 
   (* print_endline (vm_state_to_string (c, e, env)); *)
@@ -162,5 +160,7 @@ let rec iterate (d : decomp) : vm_state =
       let (c', e, env) = contract c r in
       iterate (refocus (c', e, env))
 
+let init_context = [FHandle(Handler(RetClause("x", ERet(VVar "x")), []), Env.empty), []]
+
 let normalize (e : expr) : vm_state = 
-  iterate (refocus (CSquare, e, Env.empty))
+  iterate (refocus (init_context, e, Env.empty))
