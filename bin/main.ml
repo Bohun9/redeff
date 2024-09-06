@@ -20,5 +20,5 @@ let program = Utils.parse_from_string source
 
 let _ = print_endline (expr_to_string program)
 let _ = print_endline "\n-->*\n"
-let _ = print_endline (Eval.normalize program |> Eval.vm_state_to_string)
+let _ = print_endline (Eval.normalize program |> Eval.am_state_to_string)
 
